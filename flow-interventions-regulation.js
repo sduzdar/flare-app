@@ -7,7 +7,7 @@
     const {add,abs,choice,exit}=h;
 
     // A-OT-01 — Disengagement
-    add({id:'disengage:media',path:'/thinking-tool/disengage',type:'media',title:'اطلع من الحلقة',desc:'دقيقتين. ما رح نحل الموضوع من جديد.',mediaType:'audio',placeholderTitle:'هون بتكون الممارسة الصوتية',placeholderBody:'التسجيل سيُضاف لاحقًا.',duration:'A-OT-01 · 2–3 دقائق',after:{prompt:'قدرت ترجع لشيء ثاني؟',options:[
+    add({id:'disengage:media',path:'/thinking-tool/disengage',type:'media',title:'اطلع من الحلقة',desc:'دقيقتين. ما رح نحل الموضوع من جديد.',mediaType:'audio',placeholderTitle:'هون بتكون الممارسة الصوتية',placeholderBody:'التسجيل سيُضاف لاحقًا.',duration:'A-OT-01 · 2–3 دقائق',guard:c=>Number(c.guards.disengagePlays||0)>=2?abs('exit:done'):null,after:{prompt:'قدرت ترجع لشيء ثاني؟',options:[
       {label:'نعم',target:abs('exit:disengaged')},
       {label:'شوي',target:abs('disengage:anchor')},
       {label:'لا',target:abs('disengage:no')}
@@ -18,7 +18,7 @@
       {label:'ساعدني أحدد شو لازم أرجعله هلا',target:abs('next:type')}
     ]);
 
-    add({id:'disengage:repeat',path:'/thinking-tool/disengage-repeat',type:'media',title:'محاولة ثانية قصيرة',desc:'مرة واحدة فقط، وبعدها ما بدنا نضل داخل التطبيق.',mediaType:'audio',placeholderTitle:'نفس الممارسة — مرة أخيرة',placeholderBody:'التسجيل سيُضاف لاحقًا.',duration:'A-OT-01 · إعادة واحدة فقط',guard:c=>c.guards.disengagementRepeatUsed&&c.session.currentNode!=='disengage:repeat'?abs('exit:done'):null,onEnter:c=>c.setGuard('disengagementRepeatUsed',true),after:{prompt:'بعد المحاولة الثانية:',options:[
+    add({id:'disengage:repeat',path:'/thinking-tool/disengage-repeat',type:'media',title:'محاولة ثانية قصيرة',desc:'مرة واحدة فقط، وبعدها ما بدنا نضل داخل التطبيق.',mediaType:'audio',placeholderTitle:'نفس الممارسة — مرة أخيرة',placeholderBody:'التسجيل سيُضاف لاحقًا.',duration:'A-OT-01 · إعادة واحدة فقط',guard:c=>c.guards.disengagementRepeatUsed?abs('exit:done'):null,onEnter:c=>{c.setGuard('disengagementRepeatUsed',true);c.incGuard('disengagePlays')},after:{prompt:'بعد المحاولة الثانية:',options:[
       {label:'أطلع وأجرب',target:abs('exit:done')},
       {label:'ساعدني أحدد شو أعمل',target:abs('next:type')}
     ]}});
