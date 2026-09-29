@@ -112,6 +112,16 @@
     return '<form data-flow-id="'+esc(flow.id)+'" data-flow-form="'+esc(node.id)+'">'+renderFields(fields,c)+err+'<button class="primary" type="submit">'+esc(resolve(node.submitLabel||'كمّل',c))+'</button></form>';
   }
 
+  function renderRating(flow,node,c){
+    const key=resolve(node.key,c);
+    const value=Number(c.session[key]??resolve(node.defaultValue??5,c));
+    return '<form class="journey-rating" data-flow-id="'+esc(flow.id)+'" data-flow-rating="'+esc(node.id)+'">'+
+      '<div class="rating-readout"><strong data-rating-value>'+value+'</strong><span>من 10</span></div>'+
+      '<input aria-label="'+esc(resolve(node.prompt||node.title,c))+'" type="range" min="0" max="10" step="1" name="rating" value="'+value+'">'+
+      '<div class="rating-scale" aria-hidden="true"><span>0</span><span>5</span><span>10</span></div>'+
+      '<button class="primary wide" type="submit">'+esc(resolve(node.submitLabel||'كمّل',c))+'</button></form>';
+  }
+
   function renderMedia(flow,node,c){
     const after=node.after?'<div class="feature"><h2>'+esc(resolve(node.after.prompt,c))+'</h2><div class="stack">'+(resolve(node.after.options,c)||[]).map((o,i)=>'<button class="row-card" data-flow-id="'+esc(flow.id)+'" data-flow-media-choice="'+esc(node.id)+'" data-flow-option="'+i+'"><span><h3>'+esc(resolve(o.label,c))+'</h3></span>'+icon('arrow','arrow')+'</button>').join('')+'</div></div>':'';
     return '<div class="video-stage"><span class="play-disc">'+icon(node.mediaType==='audio'?'headphones':'play')+'</span><h2>'+esc(resolve(node.placeholderTitle,c))+'</h2>'+(node.placeholderBody?'<p>'+esc(resolve(node.placeholderBody,c))+'</p>':'')+(node.duration?'<span class="pill">'+esc(resolve(node.duration,c))+'</span>':'')+'</div>'+after;
@@ -136,6 +146,7 @@
     if(node.notice)html+='<div class="detail-note"><p>'+resolve(node.notice,c2)+'</p></div>';
     if(node.type==='choice')html+=renderChoice(flow,node,c2);
     else if(node.type==='form')html+=renderForm(flow,node,c2);
+    else if(node.type==='rating')html+=renderRating(flow,node,c2);
     else if(node.type==='media')html+=renderMedia(flow,node,c2);
     else if(node.type==='exit')html+=resolve(node.bodyHtml||'',c2)+(node.cta?'<button class="primary wide" data-go="'+esc(resolve(node.cta.path,c2))+'">'+esc(resolve(node.cta.label,c2))+'</button>':'');
     else if(node.type==='summary')html+=resolve(node.bodyHtml||'',c2)+renderChoice(flow,{...node,prompt:node.prompt||'',options:node.options||[]},c2);
@@ -176,7 +187,13 @@
   }
 
   function handleClick(e){
-    const el=e.target.closest('[data-flow-start],[data-flow-target],[data-flow-choice],[data-flow-media-choice]');if(!el)return false;
+    const el=e.target.closest('[data-flow-start],[data-flow-target],[data-flow-choice],[data-flow-media-choice],[data-flow-pattern]');if(!el)return false;
+    if(el.dataset.flowPattern){
+      const flowId=el.dataset.flowPattern;const flow=flows.get(flowId);if(!flow)return false;
+      const s=getSession(flowId);if(!Array.isArray(state.patterns))state.patterns=[];
+      state.patterns.push({id:uid('pattern'),flowId,situationId:s.situationId,baseline:s.baseline_rating,final:s.final_rating,createdAt:now()});
+      persist();el.disabled=true;el.textContent='انحفظ النمط';return true;
+    }
     if(el.dataset.flowStart){
       const [flowId,situationId]=el.dataset.flowStart.split(':');const flow=flows.get(flowId);if(!flow)return false;
       const s=newSession(flowId,situationId);const situation=flow.situations.find(x=>x.id===situationId);if(!situation)return false;
@@ -188,7 +205,7 @@
       if(flow)break;
       const choiceId=el.dataset.flowChoice||el.dataset.flowMediaChoice;
       if(choiceId&&f.nodes[choiceId]){flow=f;node=f.nodes[choiceId];break}
-      if(el.dataset.flowTarget){flow=f;break}
+      if(el.dataset.flowTarget&&f.nodes[el.dataset.flowTarget]){flow=f;break}
     }
     if(el.dataset.flowTarget){
       const target=el.dataset.flowTarget;
@@ -206,6 +223,8 @@
 
   function formValues(form){const d=new FormData(form),out={};for(const [k,v] of d.entries())out[k]=String(v).trim();return out}
   function handleInput(e){
+    const rating=e.target?.closest?.('[data-flow-rating]');
+    if(rating){const output=rating.querySelector('[data-rating-value]');if(output)output.textContent=e.target.value;return true}
     const form=e.target?.closest?.('[data-flow-form]');if(!form)return false;
     const nodeId=form.dataset.flowForm;let flow=form.dataset.flowId?flows.get(form.dataset.flowId):null;
     if(!flow)for(const f of flows.values()){if(f.nodes[nodeId]){flow=f;break}}
@@ -215,6 +234,11 @@
   }
 
   function handleSubmit(e){
+    if(e.target?.dataset?.flowRating){
+      e.preventDefault();const form=e.target,nodeId=form.dataset.flowRating;let flow=form.dataset.flowId?flows.get(form.dataset.flowId):null,node=flow?.nodes[nodeId]||null;
+      if(!flow||!node)return false;const value=Math.max(0,Math.min(10,Number(new FormData(form).get('rating'))));
+      const c=ctx(flow,node);setSession(flow.id,resolve(node.key,c),value);const next=resolve(node.next,{...ctx(flow,node),value});go(applyTransition(flow,next));return true;
+    }
     const form=e.target;if(!form?.dataset?.flowForm)return false;
     const nodeId=form.dataset.flowForm;let flow=form.dataset.flowId?flows.get(form.dataset.flowId):null,node=flow?.nodes[nodeId]||null;
     if(!flow)for(const f of flows.values()){if(f.nodes[nodeId]){flow=f;node=f.nodes[nodeId];break}}

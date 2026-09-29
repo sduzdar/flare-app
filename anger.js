@@ -399,3 +399,12 @@
     categoryFooter:()=>'<div class="section-title"><h2>النموذج الأساسي</h2><small>الغضب مش هو التصرّف</small></div>'+row(videos.find(v=>v.id==='ANG-01'))
   });
 })();
+
+// The v2 journey layer loads after both Anger and Overthinking have registered
+// their original tools, guards, and persistence-aware routes.
+{
+  const journeyScript=document.createElement('script');
+  journeyScript.src='journeys-v2.js';
+  journeyScript.onload=()=>render();
+  document.head.appendChild(journeyScript);
+}
