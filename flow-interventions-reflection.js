@@ -7,7 +7,7 @@
     const {add,abs,choice,form,exit}=h;
 
     // WR-OT-01 — review once
-    const guardReview=c=>c.guards.reviewStarted&&c.session.currentNode!=='review:intro'?abs('disengage:media'):null;
+    const guardReview=c=>c.guards.reviewStarted?abs('disengage:media'):null;
     add({id:'review:intro',path:'/thinking-tool/review',type:'custom',title:'راجع الموقف مرة واحدة',desc:'مش مطلوب ترجع تعيش كل التفاصيل.',eyebrow:'WR-OT-01',guard:guardReview,onEnter:c=>c.setGuard('reviewStarted',true),render:()=>'<div class="feature"><p>بدنا نعرف بس: شو صار؟ شو فهمت؟ وهل في شيء لازم تعمله؟</p><button class="primary" data-flow-target="/thinking-tool/review-camera">ابدأ المراجعة</button></div>'});
 
     form('review:camera','/thinking-tool/review-camera','لو في كاميرا بالمكان، شو كانت سجلت؟',[
@@ -41,7 +41,7 @@
     exit('review:done','/thinking-done/review','خلصت المراجعة','ما بدنا نفتح نفس الموقف مرة ثانية هلا.',()=>'<div class="feature"><p>أخذت الفهم اللي كان بالموقف. ما في خطوة إضافية مطلوبة الآن.</p></div>',{cta:{label:'اطلع',path:'/'},onEnter:c=>{c.session.complete=true;persist()}});
 
     // TOOL-OT-02 — Enough Point
-    const guardEnough=c=>c.guards.blockEnough&&c.session.currentNode!=='enough:start'?abs('exit:uncertainty'):null;
+    const guardEnough=c=>c.guards.blockEnough?abs('exit:uncertainty'):null;
     form('enough:start','/thinking-tool/enough','نقطة الكفاية',[
       {key:'enough_decision',label:'شو القرار اللي قدامك؟',placeholder:'أقبل؟ أرفض؟ أحكي؟ أستنى؟ أبدأ؟',required:true}
     ],abs('enough:known'),{desc:'مش لازم توصل لليقين. بدنا نعرف إذا فعلًا ناقصك شيء مهم، ولا الجزء اللي بقي ما رح تعرفه قبل ما تتحرك.',guard:guardEnough});
@@ -108,6 +108,14 @@
         '<button class="row-card" data-flow-target="'+h.goAbs('info:start')+'"><h3>لسه ناقصني شيء محدد</h3>'+icon('arrow','arrow')+'</button>'+
         '<button class="row-card" data-flow-choice="enough:screen" data-flow-option="0"><h3>المعلومات موجودة، بس لسه بدي ضمان</h3>'+icon('arrow','arrow')+'</button></div>';
     },options:[{label:'المعلومات موجودة، بس لسه بدي ضمان',set:{blockEnough:true},target:abs('uncertainty:media')}]});
+
+    // Once A-OT-02 is reached from Enough Point, browser Back / reload must not reopen
+    // any prior Enough Point screen in the same visit.
+    Object.keys(h.nodes).filter(id=>id.startsWith('enough:')).forEach(id=>{
+      const node=h.nodes[id];
+      const prior=node.guard;
+      node.guard=c=>guardEnough(c)||(typeof prior==='function'?prior(c):null);
+    });
 
     // Cards
     add({id:'card:more',path:'/thinking-tool/card-more',type:'custom',title:'قبل ما تكمل تفكير',desc:'Checkpoint سريع، مش تحليل جديد.',render:()=>'<div class="feature"><p>1. في شيء جديد؟</p><p>2. الجديد يغيّر فهم، قرار، أو فعل؟</p><p>3. في خطوة ممكن تعملها؟</p><p>4. إذا كملت تفكير، شو الجديد اللي متوقع يطلع؟</p></div><div class="stack">'+
