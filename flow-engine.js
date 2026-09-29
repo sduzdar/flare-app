@@ -6,20 +6,29 @@
   function now(){return new Date().toISOString()}
   function uid(prefix='flow'){return prefix+'-'+Date.now()+'-'+Math.random().toString(36).slice(2,7)}
   function ensureRoot(){if(!state.flowSessions||typeof state.flowSessions!=='object')state.flowSessions={}}
+  function defaultsFor(flowId){
+    const flow=flows.get(flowId);
+    return typeof flow?.sessionDefaults==='function'?flow.sessionDefaults():{...(flow?.sessionDefaults||{})};
+  }
+  function baseSession(flowId,situationId=''){
+    return {visitId:uid(flowId),startedAt:now(),updatedAt:now(),answers:{},guards:{},currentNode:'',previousNode:'',situationId,complete:false,...defaultsFor(flowId)};
+  }
   function getSession(flowId){
     ensureRoot();
     if(!state.flowSessions[flowId]||typeof state.flowSessions[flowId]!=='object'){
-      state.flowSessions[flowId]={visitId:uid(flowId),startedAt:now(),updatedAt:now(),answers:{},guards:{},currentNode:'',previousNode:'',situationId:'',complete:false};
+      state.flowSessions[flowId]=baseSession(flowId);
       persist();
     }
     const s=state.flowSessions[flowId];
+    const defaults=defaultsFor(flowId);
+    Object.entries(defaults).forEach(([key,value])=>{if(s[key]===undefined)s[key]=value});
     if(!s.answers||typeof s.answers!=='object')s.answers={};
     if(!s.guards||typeof s.guards!=='object')s.guards={};
     return s;
   }
   function newSession(flowId,situationId=''){
     ensureRoot();
-    state.flowSessions[flowId]={visitId:uid(flowId),startedAt:now(),updatedAt:now(),answers:{},guards:{},currentNode:'',previousNode:'',situationId,complete:false};
+    state.flowSessions[flowId]=baseSession(flowId,situationId);
     persist();
     return state.flowSessions[flowId];
   }
@@ -27,6 +36,7 @@
   function setAnswer(flowId,key,value){const s=getSession(flowId);s.answers[key]=value;touch(s);return s}
   function mergeAnswers(flowId,values){const s=getSession(flowId);Object.assign(s.answers,values);touch(s);return s}
   function setGuard(flowId,key,value=true){const s=getSession(flowId);s.guards[key]=value;touch(s);return s}
+  function setSession(flowId,key,value){const s=getSession(flowId);s[key]=value;touch(s);return s}
   function incGuard(flowId,key){const s=getSession(flowId);s.guards[key]=(Number(s.guards[key])||0)+1;touch(s);return s.guards[key]}
   function markComplete(flowId){const s=getSession(flowId);s.complete=true;touch(s)}
 
@@ -42,14 +52,17 @@
     if(!target)return '/';
     if(typeof target==='string')return targetPath(flow,target);
     if(target.set)Object.entries(target.set).forEach(([k,v])=>setGuard(flow.id,k,v));
+    if(target.session)Object.entries(target.session).forEach(([k,v])=>setSession(flow.id,k,resolve(v,ctx(flow,flow.nodes[target.node]||{}))));
     if(target.answers)Object.entries(target.answers).forEach(([k,v])=>setAnswer(flow.id,k,v));
     if(target.complete)markComplete(flow.id);
     return targetPath(flow,target.node||target.path||'/');
   }
 
-  function ctx(flow,node){return {flow,node,session:getSession(flow.id),answers:getSession(flow.id).answers,guards:getSession(flow.id).guards,setAnswer:(k,v)=>setAnswer(flow.id,k,v),setGuard:(k,v)=>setGuard(flow.id,k,v),incGuard:k=>incGuard(flow.id,k),goTarget:t=>go(applyTransition(flow,t)),targetPath:t=>targetPath(flow,t)}}
+  function ctx(flow,node){return {flow,node,session:getSession(flow.id),answers:getSession(flow.id).answers,guards:getSession(flow.id).guards,setAnswer:(k,v)=>setAnswer(flow.id,k,v),setGuard:(k,v)=>setGuard(flow.id,k,v),setSession:(k,v)=>setSession(flow.id,k,v),incGuard:k=>incGuard(flow.id,k),goTarget:t=>go(applyTransition(flow,t)),targetPath:t=>targetPath(flow,t)}}
 
   function guardRedirect(flow,node,c){
+    const priority=flow.priorityRedirect?.(c,node);
+    if(priority)return priority;
     const g=node.guard;
     if(!g)return null;
     if(typeof g==='function')return g(c)||null;
@@ -76,7 +89,7 @@
   function renderChoice(flow,node,c){
     const options=resolve(node.options,c)||[];
     return (node.prompt?'<div class="feature"><h2>'+esc(resolve(node.prompt,c))+'</h2>'+(node.body?'<p>'+resolve(node.body,c)+'</p>':'')+'<div class="stack">':'')+
-      options.map((o,i)=>'<button class="row-card" data-flow-choice="'+esc(node.id)+'" data-flow-option="'+i+'"><span><h3>'+esc(resolve(o.label,c))+'</h3>'+(o.desc?'<small>'+esc(resolve(o.desc,c))+'</small>':'')+'</span>'+icon('arrow','arrow')+'</button>').join('')+
+      options.map((o,i)=>'<button class="row-card" data-flow-id="'+esc(flow.id)+'" data-flow-choice="'+esc(node.id)+'" data-flow-option="'+i+'"><span><h3>'+esc(resolve(o.label,c))+'</h3>'+(o.desc?'<small>'+esc(resolve(o.desc,c))+'</small>':'')+'</span>'+icon('arrow','arrow')+'</button>').join('')+
       (node.prompt?'</div></div>':'')+
       (node.understand?'<button class="secondary wide" style="margin-top:14px" data-flow-target="'+esc(resolve(node.understand,c))+'">بدي أفهم شو عم بصير معي</button>':'');
   }
@@ -96,18 +109,27 @@
   function renderForm(flow,node,c){
     const fields=resolve(node.fields,c)||[];
     const err=c.session.formError&&c.session.formError.node===node.id?'<p class="status-error" role="alert">'+esc(c.session.formError.message)+'</p>':'';
-    return '<form data-flow-form="'+esc(node.id)+'">'+renderFields(fields,c)+err+'<button class="primary" type="submit">'+esc(resolve(node.submitLabel||'كمّل',c))+'</button></form>';
+    return '<form data-flow-id="'+esc(flow.id)+'" data-flow-form="'+esc(node.id)+'">'+renderFields(fields,c)+err+'<button class="primary" type="submit">'+esc(resolve(node.submitLabel||'كمّل',c))+'</button></form>';
   }
 
   function renderMedia(flow,node,c){
-    const after=node.after?'<div class="feature"><h2>'+esc(resolve(node.after.prompt,c))+'</h2><div class="stack">'+(resolve(node.after.options,c)||[]).map((o,i)=>'<button class="row-card" data-flow-media-choice="'+esc(node.id)+'" data-flow-option="'+i+'"><span><h3>'+esc(resolve(o.label,c))+'</h3></span>'+icon('arrow','arrow')+'</button>').join('')+'</div></div>':'';
+    const after=node.after?'<div class="feature"><h2>'+esc(resolve(node.after.prompt,c))+'</h2><div class="stack">'+(resolve(node.after.options,c)||[]).map((o,i)=>'<button class="row-card" data-flow-id="'+esc(flow.id)+'" data-flow-media-choice="'+esc(node.id)+'" data-flow-option="'+i+'"><span><h3>'+esc(resolve(o.label,c))+'</h3></span>'+icon('arrow','arrow')+'</button>').join('')+'</div></div>':'';
     return '<div class="video-stage"><span class="play-disc">'+icon(node.mediaType==='audio'?'headphones':'play')+'</span><h2>'+esc(resolve(node.placeholderTitle,c))+'</h2>'+(node.placeholderBody?'<p>'+esc(resolve(node.placeholderBody,c))+'</p>':'')+(node.duration?'<span class="pill">'+esc(resolve(node.duration,c))+'</span>':'')+'</div>'+after;
   }
 
   function renderNode(flow,node){
     const c=ctx(flow,node);
     const redirect=guardRedirect(flow,node,c);
-    if(redirect){queueMicrotask(()=>go(applyTransition(flow,redirect)));return '<div class="empty"><p>عم ننقلك للخطوة المناسبة…</p></div>'}
+    if(redirect){
+      const nextPath=applyTransition(flow,redirect);
+      const nextNode=flow.pathMap[nextPath];
+      if(nextNode&&nextNode!==node){
+        if(typeof history!=='undefined'&&history.replaceState)history.replaceState(null,'','#'+nextPath);
+        return renderNode(flow,nextNode);
+      }
+      queueMicrotask(()=>go(nextPath));
+      return '<div class="empty"><p>عم ننقلك للخطوة المناسبة…</p></div>';
+    }
     enterNode(flow,node);
     const c2=ctx(flow,node);
     let html=(node.back===false?'':back(resolve(node.back||flow.categoryPath,c2),resolve(node.backLabel||flow.title,c2)))+intro(resolve(node.title,c2),resolve(node.desc||'',c2),resolve(node.eyebrow||'',c2));
@@ -160,8 +182,10 @@
       const s=newSession(flowId,situationId);const situation=flow.situations.find(x=>x.id===situationId);if(!situation)return false;
       go(targetPath(flow,situation.start));return true;
     }
-    let flow=null,node=null;
+    let flow=el.dataset.flowId?flows.get(el.dataset.flowId):null,node=null;
+    if(flow){const choiceId=el.dataset.flowChoice||el.dataset.flowMediaChoice;node=choiceId?flow.nodes[choiceId]:null}
     for(const f of flows.values()){
+      if(flow)break;
       const choiceId=el.dataset.flowChoice||el.dataset.flowMediaChoice;
       if(choiceId&&f.nodes[choiceId]){flow=f;node=f.nodes[choiceId];break}
       if(el.dataset.flowTarget){flow=f;break}
@@ -183,8 +207,8 @@
   function formValues(form){const d=new FormData(form),out={};for(const [k,v] of d.entries())out[k]=String(v).trim();return out}
   function handleInput(e){
     const form=e.target?.closest?.('[data-flow-form]');if(!form)return false;
-    const nodeId=form.dataset.flowForm;let flow=null;
-    for(const f of flows.values()){if(f.nodes[nodeId]){flow=f;break}}
+    const nodeId=form.dataset.flowForm;let flow=form.dataset.flowId?flows.get(form.dataset.flowId):null;
+    if(!flow)for(const f of flows.values()){if(f.nodes[nodeId]){flow=f;break}}
     if(!flow)return false;
     const name=e.target.name;if(name)setAnswer(flow.id,name,e.target.value);
     return true;
@@ -192,8 +216,8 @@
 
   function handleSubmit(e){
     const form=e.target;if(!form?.dataset?.flowForm)return false;
-    const nodeId=form.dataset.flowForm;let flow=null,node=null;
-    for(const f of flows.values()){if(f.nodes[nodeId]){flow=f;node=f.nodes[nodeId];break}}
+    const nodeId=form.dataset.flowForm;let flow=form.dataset.flowId?flows.get(form.dataset.flowId):null,node=flow?.nodes[nodeId]||null;
+    if(!flow)for(const f of flows.values()){if(f.nodes[nodeId]){flow=f;node=f.nodes[nodeId];break}}
     if(!flow||!node)return false;
     e.preventDefault();
     const values=formValues(form),c=ctx(flow,node);
@@ -219,5 +243,5 @@
 
   document.addEventListener('input',handleInput);
 
-  window.FlareFlow={register,renderRoute,handleClick,handleSubmit,handleInput,getSession,newSession,setAnswer,mergeAnswers,setGuard,incGuard,markComplete,targetPath,validators,builders:{choiceNode,formNode,exitNode},_flows:flows};
+  window.FlareFlow={register,renderRoute,handleClick,handleSubmit,handleInput,getSession,newSession,setAnswer,mergeAnswers,setGuard,setSession,incGuard,markComplete,targetPath,validators,builders:{choiceNode,formNode,exitNode},_flows:flows};
 })();
