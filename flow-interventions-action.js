@@ -15,7 +15,7 @@
     exit('info:done','/thinking-done/info','صار واضح شو ناقصك','ما بدنا نكمل تفكير داخل FLARE.',c=>'<div class="feature"><h2>'+esc(c.answers.info||'المعلومة اللي حددتها')+'</h2><p>المصدر: '+esc(c.answers.info_source||'المصدر اللي اخترته')+'</p></div>',{cta:{label:'اطلع وروح جيبها',path:'/'},onEnter:c=>{c.setGuard('informationExit',true);c.session.complete=true;persist()}});
 
     // TOOL-OT-01 — Plan Once
-    const guardPlan=c=>c.guards.planCompleted&&c.session.currentNode!=='plan:start'?abs('plan:done'):null;
+    const guardPlan=c=>c.guards.planCompleted?abs('plan:done'):null;
     choice('plan:start','/thinking-tool/plan','شو بإيدك تعمل؟','في خطوة معقولة تقدر تعملها الآن؟',[
       {label:'نعم',answerKey:'plan_has_step',value:'نعم',target:abs('plan:step')},
       {label:'لا',answerKey:'plan_has_step',value:'لا',target:abs('plan:none')},
@@ -48,6 +48,13 @@
     ]);
 
     add({id:'plan:done',path:'/thinking-done/plan',type:'custom',title:'هذا كافي الآن',desc:'مش مطلوب منك تخطط لكل اللي بعده.',onEnter:c=>c.setGuard('planCompleted',true),render:c=>'<div class="feature"><h2>'+esc(c.answers.plan_step||'خطوتك')+'</h2>'+(c.answers.plan_pre?'<p>قبلها: '+esc(c.answers.plan_pre)+'</p>':'')+'</div><button class="primary wide" data-go="/">اطلع واعملها</button>'});
+
+    // Plan Once: after a plan is completed, Back/reload cannot reopen planning branches.
+    Object.keys(h.nodes).filter(id=>id.startsWith('plan:')&&id!=='plan:done').forEach(id=>{
+      const node=h.nodes[id];
+      const prior=node.guard;
+      node.guard=c=>guardPlan(c)||(typeof prior==='function'?prior(c):null);
+    });
 
     // TOOL-OT-03 — Next Real Step
     choice('next:type','/thinking-tool/next-step','شو الخطوة الحقيقية التالية؟','شو نوع الخطوة؟',[
@@ -107,5 +114,11 @@
     ],abs('next:done'),{validate:v=>F.validators.concreteAction(v.next_final_action)});
 
     add({id:'next:done',path:'/thinking-done/next',type:'custom',title:'خطوتك التالية',desc:'خلص. الباقي مش مطلوب منك هلا.',onEnter:c=>{c.setGuard('nextActionComplete',true);c.session.complete=true;persist()},render:c=>'<div class="feature"><h2>'+esc(c.answers.next_final_action||c.answers.next_step||'الخطوة اللي حددتها')+'</h2><p>'+esc(c.answers.next_when_detail||c.answers.next_when||'هلا')+'</p></div><button class="primary wide" data-go="/">اطلع واعملها</button>'});
+    // Once a real action is fixed, Back/reload should not reopen analysis/action-building screens.
+    Object.keys(h.nodes).filter(id=>id.startsWith('next:')&&id!=='next:done').forEach(id=>{
+      const node=h.nodes[id];
+      const prior=node.guard;
+      node.guard=c=>c.guards.nextActionComplete?abs('next:done'):(typeof prior==='function'?prior(c):null);
+    });
   };
 })();
